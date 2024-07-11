@@ -56,9 +56,28 @@ fn read_to_buffer(mut stream: &TcpStream, buf: &mut [u8]) {
         .map(|i| i.to_string())
         .collect::<Vec<String>>();
 
-    let response = match &request_line[1] {
+    let response = match &request_line[0] {
+        _get if _get == "GET" => get_handler(&request_line[1], &header),
+        _post if _post == "POST" => post_handler(&request_line[1], &header, &body),
+        _ => not_found(),
+    };
+
+    let _ = stream.write_all(response.as_bytes());
+}
+
+fn post_handler(path: &String, header: &str, body: &str) -> String {
+    match path {
+        save_file if save_file.starts_with("/files/") => file_save_handler(save_file, &body),
+        _ => {
+            format!("HTTP/1.1 404 Not Found\r\n\r\n")
+        }
+    }
+}
+
+fn get_handler(path: &String, header: &str) -> String {
+    match path {
         file_fetch if file_fetch.starts_with("/files/") => file_fetch_handler(file_fetch),
-        user_agent if user_agent == "/user-agent" => user_agent_handler(&header),
+        user_agent if user_agent == "/user-agent" => user_agent_handler(header),
         echo if echo.starts_with("/echo/") => {
             let data = echo.trim_start_matches("/echo/");
             format!(
@@ -73,13 +92,25 @@ fn read_to_buffer(mut stream: &TcpStream, buf: &mut [u8]) {
         _ => {
             format!("HTTP/1.1 404 Not Found\r\n\r\n")
         }
-    };
+    }
+}
 
-    let _ = stream.write_all(response.as_bytes());
+// There should be better error handling, but fuck it.
+fn file_save_handler(save_file: &str, body: &str) -> String {
+    let file_name = save_file.trim_start_matches("/files/");
+
+    let prefix = std::env::args().nth(2).expect("test");
+    let file_path = PathBuf::from(format!("{}{}", prefix, file_name));
+
+    if let Ok(mut file) = fs::File::create(file_path) {
+        let _ = file.write_all(body.as_bytes());
+        format!("HTTP/1.1 201 Created\r\n\r\n")
+    } else {
+        return "".to_string();
+    }
 }
 
 fn file_fetch_handler(file_fetch: &str) -> String {
-    // let prefix = "/tmp/";
     let prefix = std::env::args().nth(2).expect("test");
     let data = file_fetch.trim_start_matches("/files/");
     let file_path = PathBuf::from(format!("{}{}", prefix, data));
